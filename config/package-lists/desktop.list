@@ -20,7 +20,7 @@ brltty-
 speech-dispatcher-
 
 # Do not install Raspberry Pi firmware
-raspi-firmware-
+#raspi-firmware-
 
 xfce4
 xfce4-terminal

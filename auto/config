@@ -18,8 +18,6 @@ lb config noauto \
 	--security true \
 	--updates true \
 	--apt-options " --yes --allow-change-held-packages"
-	--parent-mirror-bootstrap http://deb.debian.org/debian \
-	--parent-mirror-binary http://deb.debian.org/debian \
-	--parent-mirror-chroot-security http://deb.debian.org/debian-security \
+	--parent-mirror-chroot-security https://deb.debian.org/debian-security \
 	"${@}"
 
