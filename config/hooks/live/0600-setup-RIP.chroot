@@ -1,0 +1,104 @@
+#!/bin/bash
+set -e
+
+#!/bin/bash
+set -e
+
+export DEBIAN_FRONTEND=noninteractive
+TARGET_DIR="/tmp/linuxcnc-dev" # Using /opt is often safer in chroot
+
+echo "P: Starting LinuxCNC Custom Build..."
+
+# 1. INSTALL GIT AND TOOLS
+apt-get update
+apt-get install -y git dpkg-dev devscripts equivs
+
+# 2. CLONE
+git clone --branch v2.9.10 --depth 1 https://github.com/LinuxCNC/linuxcnc.git "$TARGET_DIR"
+cd "$TARGET_DIR"
+
+# 3. INSTALL DEPENDENCIES (The Clean Way)
+# ./debian/configure creates the 'control' file needed for build-dep
+cd debian
+./configure uspace
+cd ..
+mk-build-deps -i -t "apt-get -y --no-install-recommends" debian/control
+
+# 4. INJECT CIA402
+# this is for LinuxCNC so don't inject ethercat specific components
+#echo "Injecting cia402.comp..."
+#git clone --depth 1 https://github.com/dbraun1981/hal-cia402 /tmp/hal-cia402
+#cp /tmp/hal-cia402/cia402.comp src/hal/components/
+
+
+# 5. BUILD DEBS
+# 5a. PRE-EMPTIVE DEPENDENCY INSTALL
+echo "Installing missing LinuxCNC build dependencies..."
+apt-get update
+apt-get install -y \
+    dh-python docbook-xsl asciidoc imagemagick asciidoc-dblatex intltool \
+    libepoxy-dev libgtk-3-dev libgpiod-dev libeditreadline-dev libtirpc-dev \
+    netcat-traditional netpbm po4a psmisc xvfb libfmt-dev yapps2 \
+    dblatex dvipng fonts-dejavu graphviz groff inkscape source-highlight \
+    texlive-extra-utils texlive-font-utils texlive-fonts-recommended \
+    texlive-lang-cyrillic texlive-lang-european texlive-lang-french \
+    texlive-lang-german texlive-lang-polish texlive-lang-spanish \
+    texlive-latex-recommended w3c-linkchecker xsltproc texlive-xetex\
+    python3-serial iptables python3-configobj libgtksourceview-4-dev\
+    tclreadline python3-pyqt5.qtopengl python3-opencv python3-espeak\
+    python3-dbus.mainloop.pyqt5 python3-dbus.mainloop.pyqt5 espeak-ng\
+    gstreamer1.0-tools espeak python3-qtpy
+
+
+# 5b. RUN MK-BUILD-DEPS AGAIN (Just to be sure)
+mk-build-deps -i -r -t "apt-get -y -o Debug::pkgProblemResolver=yes --no-install-recommends"
+
+
+echo "Building LinuxCNC packages..."
+# -b = binary only, -uc = unsigned changes, -us = unsigned source
+dpkg-buildpackage -b -uc -us -j$(nproc) 
+
+# 6. INSTALL THE GENERATED DEBS
+echo "Installing the generated LinuxCNC Debs..."
+cd ..
+
+# Force the installation. We expect some 'unconfigured' warnings here.
+dpkg -i ./*.deb || true 
+
+# This command is the 'cleaner'—it finishes the job dpkg started.
+apt-get update
+apt-get install -y -f
+
+# FINAL CONFIGURATION PASS
+# This ensures all triggers (like man-db and shared-mime-info) are finished.
+dpkg --configure -a
+
+echo "Verification: Checking if linuxcnc-uspace is fully installed..."
+if dpkg -s linuxcnc-uspace | grep -q "Status: install ok installed"; then
+    echo "SUCCESS: LinuxCNC is ready for EtherCAT build."
+else
+    echo "FAILURE: LinuxCNC is not properly installed."
+    exit 1
+fi
+# 7. HOLD THE PACKAGES (Optional but Recommended)
+# This prevents a future 'apt upgrade' from overwriting your 
+# custom LinuxCNC with the repo version. 
+# But this is for LinuxCNC so overwrites permitted
+#echo "marking linuxCNC packages as held"
+#apt-mark hold linuxcnc-uspace linuxcnc-uspace-dev
+
+echo "LinuxCNC debs installed successfully. Proceeding to EtherCAT."
+
+# 8. ETHERCAT
+# Not installing ethercat on the LinuxCNC installer for licencing
+#echo "Installing EtherCAT support..."
+#apt update 
+#apt-get install -y linuxcnc-ethercat ethercat-master
+
+# 10. CLEANUP
+echo "Cleaning up..."
+rm -rf "$TARGET_DIR"
+# We did not install ci402.comp so next folder does not exist, comment out
+#rm -rf /tmp/hal-cia402
+# Optional: Remove build-dependencies to shrink ISO size
+apt-get autoremove -y
